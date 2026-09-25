@@ -243,7 +243,14 @@ def create_warning(
     )
     db.add(warning)
     db.flush()
+    _detect_recurrence(db, warning)
     return warning
+
+
+def _detect_recurrence(db: Session, warning: Warning) -> None:
+    """新预警入库后尝试自动标记复发（延迟导入避免包初始化循环）。"""
+    from app.services.disposition_service import maybe_link_recurrence
+    maybe_link_recurrence(db, warning)
 
 
 def run_warning_detection_for_target(
@@ -339,6 +346,7 @@ def run_warning_detection_for_target(
                 )
                 db.add(warning)
                 db.flush()
+                _detect_recurrence(db, warning)
                 created_warnings.append(warning)
 
     return created_warnings

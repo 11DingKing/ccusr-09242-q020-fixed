@@ -101,6 +101,15 @@ def update_warning(
         raise HTTPException(status_code=404, detail="预警不存在")
 
     update_data = warning_in.model_dump(exclude_unset=True)
+
+    # 预警状态只能经由处置闭环推进：复核通过才允许置为已解决，
+    # 防止复核未完成时同一风险被通用编辑接口误判为已解决。
+    if "status" in update_data:
+        raise HTTPException(
+            status_code=403,
+            detail="预警状态不可直接修改，请通过处置闭环（分派/处置/复核）推进",
+        )
+
     for key, value in update_data.items():
         setattr(warning, key, value)
 

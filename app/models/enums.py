@@ -54,6 +54,14 @@ class WarningStatus(str, enum.Enum):
     DISMISSED = "已忽略"
 
 
+class DispositionScope(str, enum.Enum):
+    COLLEGE_LEADERSHIP = "学院领导"
+    TEACHING_OFFICE = "教务部门"
+    STUDENT_AFFAIRS = "学工部门"
+    CAREER_SERVICE = "就业指导"
+    MAJOR_TEAM = "微专业教研组"
+
+
 INDUSTRIES = [
     "信息技术",
     "金融",

@@ -44,13 +44,16 @@ TRANSITIONS: Mapping[tuple[CaseState, Action], CaseState] = {
     (CaseState.CLAIMED, Action.REQUEST_MATERIAL): CaseState.WAITING_MATERIAL,
     (CaseState.CLAIMED, Action.SUBMIT_REVIEW): CaseState.WAITING_REVIEW,
     (CaseState.CLAIMED, Action.TRANSFER): CaseState.CLAIMED,
+    (CaseState.CLAIMED, Action.CLAIM): CaseState.CLAIMED,
     (CaseState.CLAIMED, Action.CANCEL): CaseState.CANCELLED,
     (CaseState.WAITING_MATERIAL, Action.RECEIVE_MATERIAL): CaseState.PROCESSING,
     (CaseState.WAITING_MATERIAL, Action.TRANSFER): CaseState.WAITING_MATERIAL,
+    (CaseState.WAITING_MATERIAL, Action.CLAIM): CaseState.WAITING_MATERIAL,
     (CaseState.WAITING_MATERIAL, Action.CANCEL): CaseState.CANCELLED,
     (CaseState.PROCESSING, Action.REQUEST_MATERIAL): CaseState.WAITING_MATERIAL,
     (CaseState.PROCESSING, Action.SUBMIT_REVIEW): CaseState.WAITING_REVIEW,
     (CaseState.PROCESSING, Action.TRANSFER): CaseState.PROCESSING,
+    (CaseState.PROCESSING, Action.CLAIM): CaseState.PROCESSING,
     (CaseState.WAITING_REVIEW, Action.APPROVE): CaseState.CLOSED,
     (CaseState.WAITING_REVIEW, Action.RETURN): CaseState.PROCESSING,
     (CaseState.CLOSED, Action.REOPEN): CaseState.PROCESSING,
@@ -111,11 +114,15 @@ def decide_action(
     if missing:
         return WorkflowDecision(False, current, current, "动作缺少必要信息", missing)
     if current in {CaseState.CLAIMED, CaseState.PROCESSING, CaseState.WAITING_MATERIAL}:
+        lease_expired = (
+            lease_until is not None and now is not None and now > lease_until
+        )
+        # 他人持有时一律拒绝；但租约已过期时允许通过认领接手
         if lease_owner and actor_id and lease_owner != actor_id and role != "manager":
-            return WorkflowDecision(False, current, current, "事项由其他人员持有")
-        if lease_until is not None and now is not None and now > lease_until:
-            if action not in {Action.CLAIM, Action.TRANSFER, Action.CANCEL}:
-                return WorkflowDecision(False, current, current, "持有租约已经到期")
+            if not (action == Action.CLAIM and lease_expired):
+                return WorkflowDecision(False, current, current, "事项由其他人员持有")
+        if lease_expired and action not in {Action.CLAIM, Action.TRANSFER, Action.CANCEL}:
+            return WorkflowDecision(False, current, current, "持有租约已经到期")
     if action == Action.APPROVE and role == "reviewer" and lease_owner == actor_id:
         return WorkflowDecision(False, current, current, "处理人与复核人不能相同")
     category = "resolution" if target in {CaseState.CLOSED, CaseState.CANCELLED} else "workflow"
@@ -130,8 +137,8 @@ def available_actions(current: CaseState, role: str) -> tuple[Action, ...]:
 
 def validate_transition_table() -> None:
     for (source, action), target in TRANSITIONS.items():
-        if source == target and action not in {Action.TRANSFER}:
-            raise ValueError("只有转交动作允许保持原状态")
+        if source == target and action not in {Action.TRANSFER, Action.CLAIM}:
+            raise ValueError("只有转交或过期接手动作允许保持原状态")
         if source in {CaseState.CLOSED, CaseState.CANCELLED} and action != Action.REOPEN:
             raise ValueError("终态只能通过重新打开离开")
         if target == CaseState.CLOSED and action != Action.APPROVE:

@@ -54,6 +54,31 @@ from .profile import (
     MicroMajorProfile,
     CollegeProfile,
 )
+from .disposition import (
+    DispositionDispatch,
+    ClaimRequest,
+    RequestMaterialBody,
+    ReceiveMaterialBody,
+    SubmitReviewBody,
+    ReviewBody,
+    TransferBody,
+    ReasonBody,
+    DispositionUpdate,
+    EvidenceCreate,
+    RecurrenceCreate,
+    WarningBrief,
+    EvidenceItem,
+    ActionLogItem,
+    CycleItem,
+    RecurrenceOriginBrief,
+    DispositionBrief,
+    DispositionDetail,
+    DispositionListResponse,
+    TodoItem,
+    TodoResponse,
+    ActionResult,
+    RecurrenceItem,
+)
 
 __all__ = [
     "BaseSchema",
