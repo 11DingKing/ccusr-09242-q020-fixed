@@ -29,3 +29,8 @@ class Warning(Base, TimestampMixin):
     description = Column(Text, comment="预警说明")
 
     attribution_records = relationship("AttributionRecord", back_populates="warning", cascade="all, delete-orphan")
+    disposal_cases = relationship(
+        "DisposalCase", back_populates="warning",
+        order_by="DisposalCase.cycle_no",
+        doc="不随预警删除级联删除，以保留不可变处置记录",
+    )

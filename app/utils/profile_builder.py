@@ -9,6 +9,7 @@ from app.models import (
     AttributionRecord,
     ProvinceReferenceLine,
     WarningStatus,
+    OPEN_WARNING_STATUSES,
     WarningLevel,
     WarningType,
     AttributionCategory,
@@ -35,7 +36,7 @@ def build_warning_summary(
         Warning.target_id == target_id,
     ).order_by(Warning.created_at.desc()).all()
 
-    active_count = sum(1 for w in all_warnings if w.status == WarningStatus.ACTIVE)
+    active_count = sum(1 for w in all_warnings if w.status in OPEN_WARNING_STATUSES)
     resolved_count = sum(1 for w in all_warnings if w.status == WarningStatus.RESOLVED)
 
     by_level = {}
@@ -117,7 +118,7 @@ def build_profile_stats(
     active_warnings = db.query(Warning).filter(
         Warning.target_type == target_type,
         Warning.target_id == target_id,
-        Warning.status == WarningStatus.ACTIVE,
+        Warning.status.in_(OPEN_WARNING_STATUSES),
     ).all()
 
     yearly_trend = []

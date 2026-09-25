@@ -7,6 +7,7 @@ from .employer_follow_ups import router as follow_ups_router
 from .warnings import router as warnings_router
 from .attributions import router as attributions_router
 from .reference_lines import router as reference_lines_router
+from .disposals import router as disposals_router
 
 api_router = APIRouter()
 
@@ -18,5 +19,6 @@ api_router.include_router(follow_ups_router)
 api_router.include_router(warnings_router)
 api_router.include_router(attributions_router)
 api_router.include_router(reference_lines_router)
+api_router.include_router(disposals_router)
 
 __all__ = ["api_router"]

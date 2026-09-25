@@ -10,6 +10,7 @@ from app.models import (
     WarningType,
     WarningLevel,
     AttributionRecord,
+    OPEN_WARNING_STATUSES,
 )
 from app.schemas import (
     Warning as WarningSchema,
@@ -34,11 +35,30 @@ def list_warnings(
     query = db.query(Warning)
 
     if status:
-        query = query.filter(Warning.status == status)
+        # 同时接受枚举名(ACTIVE)与中文展示值(预警中)。
+        status_enum = next(
+            (s for s in WarningStatus if s.value == status or s.name == status),
+            None,
+        )
+        if status_enum is None:
+            raise HTTPException(status_code=400, detail=f"未知预警状态: {status}")
+        query = query.filter(Warning.status == status_enum)
     if warning_type:
-        query = query.filter(Warning.warning_type == warning_type)
+        type_enum = next(
+            (t for t in WarningType if t.value == warning_type or t.name == warning_type),
+            None,
+        )
+        if type_enum is None:
+            raise HTTPException(status_code=400, detail=f"未知预警类型: {warning_type}")
+        query = query.filter(Warning.warning_type == type_enum)
     if warning_level:
-        query = query.filter(Warning.warning_level == warning_level)
+        level_enum = next(
+            (lv for lv in WarningLevel if lv.value == warning_level or lv.name == warning_level),
+            None,
+        )
+        if level_enum is None:
+            raise HTTPException(status_code=400, detail=f"未知预警级别: {warning_level}")
+        query = query.filter(Warning.warning_level == level_enum)
     if target_type:
         query = query.filter(Warning.target_type == target_type)
     if target_id:
@@ -46,7 +66,7 @@ def list_warnings(
 
     warnings = query.order_by(Warning.created_at.desc()).all()
 
-    active_count = db.query(Warning).filter(Warning.status == WarningStatus.ACTIVE).count()
+    active_count = db.query(Warning).filter(Warning.status.in_(OPEN_WARNING_STATUSES)).count()
     resolved_count = db.query(Warning).filter(Warning.status == WarningStatus.RESOLVED).count()
 
     data = []
@@ -101,6 +121,13 @@ def update_warning(
         raise HTTPException(status_code=404, detail="预警不存在")
 
     update_data = warning_in.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        # 预警状态只能随处置闭环推进（分派/复核/复发），禁止直接改写，
+        # 避免绕过复核把同一风险误判为已解决。
+        raise HTTPException(
+            status_code=409,
+            detail="预警状态由处置闭环驱动，请通过处置接口推进",
+        )
     for key, value in update_data.items():
         setattr(warning, key, value)
 

@@ -14,6 +14,7 @@ from app.models import (
     WarningType,
     WarningLevel,
     WarningStatus,
+    OPEN_WARNING_STATUSES,
 )
 from app.utils.stats_calculator import calculate_group_stats
 
@@ -185,10 +186,43 @@ def check_existing_warning(
         Warning.target_id == target_id,
         Warning.warning_type == warning_type,
         Warning.indicator == indicator,
-        Warning.status == WarningStatus.ACTIVE,
+        Warning.status.in_(OPEN_WARNING_STATUSES),
         Warning.start_year <= start_year,
         Warning.end_year >= end_year,
     ).first()
+
+
+def _find_closed_match(
+    db: Session,
+    target_type: str,
+    target_id: int,
+    warning_type: WarningType,
+    indicator: str,
+) -> Optional[Warning]:
+    """找到同一风险上一次复核闭环的预警，用于复发关联。"""
+    return db.query(Warning).filter(
+        Warning.target_type == target_type,
+        Warning.target_id == target_id,
+        Warning.warning_type == warning_type,
+        Warning.indicator == indicator,
+        Warning.status == WarningStatus.RESOLVED,
+    ).order_by(Warning.id.desc()).first()
+
+
+def _reopen_if_recurred(db: Session, warning: Warning, reason: str) -> bool:
+    """已闭环预警再次命中 -> 复发重开并关联上一轮处置单；处理中的预警不重复开单。"""
+    # 延迟导入避免模块循环依赖。
+    from app.services.disposal_service import reopen_resolved_warning
+    return reopen_resolved_warning(db, warning, reason)
+
+
+def _reopen_when_new(db: Session, warning: Warning, reason: str,
+                     new_end_year: int, new_value: Optional[float] = None) -> bool:
+    """仅当命中信号相对闭环基线构成新复发时才重开。"""
+    from app.services.disposal_service import is_new_recurrence
+    if not is_new_recurrence(db, warning, new_end_year, new_value):
+        return False
+    return _reopen_if_recurred(db, warning, reason)
 
 
 def create_warning(
@@ -211,6 +245,8 @@ def create_warning(
         db, target_type, target_id, warning_type, indicator, start_year, end_year
     )
     if existing:
+        # 进行中（含处置/待复核/复发）的预警只更新指标，状态由处置闭环决定，
+        # 检测任务无权把它改为已解决。
         existing.current_value = current_value
         existing.end_year = end_year
         existing.decline_count = decline_count
@@ -221,6 +257,30 @@ def create_warning(
         existing.description = description
         db.flush()
         return existing
+
+    closed_match = _find_closed_match(db, target_type, target_id, warning_type, indicator)
+    if closed_match and _reopen_when_new(
+        db,
+        closed_match,
+        f"指标再次触发（{start_year}-{end_year}届连续下降），上一轮闭环后风险复发",
+        new_end_year=end_year,
+        new_value=current_value,
+    ):
+        closed_match.warning_level = warning_level
+        closed_match.current_value = current_value
+        closed_match.province_value = province_value
+        closed_match.gap = gap
+        closed_match.start_year = start_year
+        closed_match.end_year = end_year
+        closed_match.decline_count = decline_count
+        closed_match.decline_details = json.dumps(decline_details, ensure_ascii=False)
+        closed_match.description = description
+        db.flush()
+        return closed_match
+    if closed_match:
+        # 同一批数据重复命中且未出现新恶化：保持已闭环，不新建重复预警，
+        # 系统不能在复核通过后自行把风险重新标记为未解决。
+        return closed_match
 
     target_name = get_target_name(db, target_type, target_id)
 
@@ -305,7 +365,7 @@ def run_warning_detection_for_target(
                 Warning.target_id == target_id,
                 Warning.warning_type == WarningType.BELOW_PROVINCE_LINE,
                 Warning.indicator == indicator,
-                Warning.status == WarningStatus.ACTIVE,
+                Warning.status.in_(OPEN_WARNING_STATUSES),
                 Warning.end_year == year,
             ).first()
 
@@ -316,30 +376,67 @@ def run_warning_detection_for_target(
                 existing.gap = gap
                 existing.description = description
                 created_warnings.append(existing)
-            else:
-                target_name = get_target_name(db, target_type, target_id)
-                warning = Warning(
-                    warning_type=WarningType.BELOW_PROVINCE_LINE,
-                    warning_level=level,
-                    status=WarningStatus.ACTIVE,
-                    target_type=target_type,
-                    target_id=target_id,
-                    target_name=target_name,
-                    indicator=indicator,
-                    current_value=current_value,
-                    province_value=threshold,
-                    gap=gap,
-                    start_year=year,
-                    end_year=year,
-                    decline_count=1,
-                    decline_details=json.dumps([
-                        d for d in yearly_data if d["year"] == year
-                    ], ensure_ascii=False),
-                    description=description,
+                continue
+
+            closed_existing = (
+                db.query(Warning)
+                .filter(
+                    Warning.target_type == target_type,
+                    Warning.target_id == target_id,
+                    Warning.warning_type == WarningType.BELOW_PROVINCE_LINE,
+                    Warning.indicator == indicator,
+                    Warning.status == WarningStatus.RESOLVED,
                 )
-                db.add(warning)
-                db.flush()
-                created_warnings.append(warning)
+                .order_by(Warning.id.desc())
+                .first()
+            )
+            if closed_existing and _reopen_when_new(
+                db,
+                closed_existing,
+                f"{year}届指标再次低于全省对照线，上一轮闭环后风险复发",
+                new_end_year=year,
+                new_value=current_value,
+            ):
+                closed_existing.current_value = current_value
+                closed_existing.warning_level = level
+                closed_existing.province_value = threshold
+                closed_existing.gap = gap
+                closed_existing.start_year = year
+                closed_existing.end_year = year
+                closed_existing.decline_count = 1
+                closed_existing.decline_details = json.dumps(
+                    [d for d in yearly_data if d["year"] == year], ensure_ascii=False
+                )
+                closed_existing.description = description
+                created_warnings.append(closed_existing)
+                continue
+            if closed_existing:
+                # 同届数据重复检测且未继续恶化：保持已闭环，不重复开单。
+                continue
+
+            target_name = get_target_name(db, target_type, target_id)
+            warning = Warning(
+                warning_type=WarningType.BELOW_PROVINCE_LINE,
+                warning_level=level,
+                status=WarningStatus.ACTIVE,
+                target_type=target_type,
+                target_id=target_id,
+                target_name=target_name,
+                indicator=indicator,
+                current_value=current_value,
+                province_value=threshold,
+                gap=gap,
+                start_year=year,
+                end_year=year,
+                decline_count=1,
+                decline_details=json.dumps([
+                    d for d in yearly_data if d["year"] == year
+                ], ensure_ascii=False),
+                description=description,
+            )
+            db.add(warning)
+            db.flush()
+            created_warnings.append(warning)
 
     return created_warnings
 
@@ -378,6 +475,11 @@ def get_target_warnings(
     )
 
     if status:
-        query = query.filter(Warning.status == status)
+        status_enum = next(
+            (s for s in WarningStatus if s.value == status or s.name == status),
+            None,
+        )
+        if status_enum is not None:
+            query = query.filter(Warning.status == status_enum)
 
     return query.order_by(Warning.created_at.desc()).all()

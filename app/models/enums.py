@@ -50,8 +50,48 @@ class AttributionCategory(str, enum.Enum):
 
 class WarningStatus(str, enum.Enum):
     ACTIVE = "预警中"
+    DISPATCHED = "处理中"
+    WAITING_REVIEW = "待复核"
     RESOLVED = "已解决"
+    RECURRED = "已复发"
     DISMISSED = "已忽略"
+
+
+class DisposalState(str, enum.Enum):
+    """处置单生命周期状态。"""
+    NEW = "待分派"
+    ASSIGNED = "处理中"
+    WAITING_REVIEW = "待复核"
+    CLOSED = "已闭环"
+
+
+class DisposalAction(str, enum.Enum):
+    """处置闭环中的可追溯动作。"""
+    DISPATCH = "分派"
+    CLAIM = "认领"
+    UPDATE_PROGRESS = "补充处置信息"
+    ADD_EVIDENCE = "登记证据摘要"
+    SUBMIT_REVIEW = "提交复核"
+    APPROVE = "复核通过"
+    RETURN = "复核退回"
+    REASSIGN = "改派"
+    RECUR = "复发重开"
+
+
+class UserRole(str, enum.Enum):
+    """就业管理处(管理员) / 学院经办人 / 复核人。"""
+    MANAGER = "manager"
+    OPERATOR = "operator"
+    REVIEWER = "reviewer"
+
+
+# 未闭环状态：只有复核通过才会进入已解决；复发重开也会回到这组状态。
+OPEN_WARNING_STATUSES = (
+    WarningStatus.ACTIVE,
+    WarningStatus.DISPATCHED,
+    WarningStatus.WAITING_REVIEW,
+    WarningStatus.RECURRED,
+)
 
 
 INDUSTRIES = [

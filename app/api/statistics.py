@@ -15,6 +15,7 @@ from app.models import (
     DestinationType,
     Warning,
     WarningStatus,
+    OPEN_WARNING_STATUSES,
     WarningLevel,
     WarningType,
     AttributionRecord,
@@ -94,7 +95,7 @@ def get_yearly_trend(
     active_warnings = db.query(Warning).filter(
         Warning.target_type == "micro_major",
         Warning.target_id == micro_major_id,
-        Warning.status == WarningStatus.ACTIVE,
+        Warning.status.in_(OPEN_WARNING_STATUSES),
     ).all()
 
     years = db.query(Graduate.graduation_year).distinct().order_by(
@@ -335,9 +336,21 @@ def get_warning_report(
     query = db.query(Warning)
 
     if status:
-        query = query.filter(Warning.status == status)
+        status_enum = next(
+            (s for s in WarningStatus if s.value == status or s.name == status),
+            None,
+        )
+        if status_enum is None:
+            raise HTTPException(status_code=400, detail=f"未知预警状态: {status}")
+        query = query.filter(Warning.status == status_enum)
     if warning_level:
-        query = query.filter(Warning.warning_level == warning_level)
+        level_enum = next(
+            (lv for lv in WarningLevel if lv.value == warning_level or lv.name == warning_level),
+            None,
+        )
+        if level_enum is None:
+            raise HTTPException(status_code=400, detail=f"未知预警级别: {warning_level}")
+        query = query.filter(Warning.warning_level == level_enum)
     if target_type:
         query = query.filter(Warning.target_type == target_type)
 
@@ -346,7 +359,7 @@ def get_warning_report(
         Warning.created_at.desc(),
     ).all()
 
-    active_count = db.query(Warning).filter(Warning.status == WarningStatus.ACTIVE).count()
+    active_count = db.query(Warning).filter(Warning.status.in_(OPEN_WARNING_STATUSES)).count()
     resolved_count = db.query(Warning).filter(Warning.status == WarningStatus.RESOLVED).count()
 
     data = []

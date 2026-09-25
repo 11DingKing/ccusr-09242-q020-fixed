@@ -9,6 +9,10 @@ from .enums import (
     WarningLevel,
     AttributionCategory,
     WarningStatus,
+    DisposalState,
+    DisposalAction,
+    UserRole,
+    OPEN_WARNING_STATUSES,
 )
 from .college import College
 from .micro_major import MicroMajor
@@ -18,6 +22,7 @@ from .employer_follow_up import EmployerFollowUp
 from .warning import Warning
 from .attribution_record import AttributionRecord
 from .province_reference_line import ProvinceReferenceLine
+from .disposal import DisposalCase, DisposalEvidence, DisposalActionLog
 
 __all__ = [
     "Base",
@@ -31,6 +36,10 @@ __all__ = [
     "WarningLevel",
     "AttributionCategory",
     "WarningStatus",
+    "DisposalState",
+    "DisposalAction",
+    "UserRole",
+    "OPEN_WARNING_STATUSES",
     "College",
     "MicroMajor",
     "Graduate",
@@ -39,4 +48,7 @@ __all__ = [
     "Warning",
     "AttributionRecord",
     "ProvinceReferenceLine",
+    "DisposalCase",
+    "DisposalEvidence",
+    "DisposalActionLog",
 ]
